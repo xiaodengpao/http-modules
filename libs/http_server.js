@@ -14,6 +14,12 @@ const continueExpression = common.continueExpression
 const chunkExpression = common.chunkExpression
 const httpSocketSetup = common.httpSocketSetup
 
+function onServerResponseClose() {
+    console.log(this._httpMessage)
+    if (this._httpMessage) {
+        this._httpMessage.emit('close')
+    }
+}
 
 // Res类
 class ServerResponse extends OutgoingMessage {
@@ -76,8 +82,13 @@ class ServerResponse extends OutgoingMessage {
 
         this._storeHeader(statusLine, headers);
     }
-}
 
+    detachSocket (socket) {
+        socket.removeListener('close', onServerResponseClose)
+        socket._httpMessage = null
+        this.socket = this.connection = null
+    }
+}
 // Server类
 class Server extends net.Server {
     constructor(requestListener) {
@@ -137,7 +148,6 @@ function connectionListener(socket) {
 
     function socketOnData(d) {
         var ret = parser.execute(d)
-        console.log(parser.incoming)
         if (parser.incoming && parser.incoming.upgrade) {
             var bytesParsed = ret;
             var req = parser.incoming;
@@ -227,15 +237,7 @@ function connectionListener(socket) {
         // respose, if so destroy the socket.
         res.on('prefinish', resOnFinish);
         function resOnFinish() {
-            // Usually the first incoming element should be our request.  it may
-            // be that in the case abortIncoming() was called that the incoming
-            // array will be empty.
-
             incoming.shift();
-
-            // if the user never called req.read(), and didn't pipe() or
-            // .resume() or .on('data'), then we call req._dump() so that the
-            // bytes will be pulled off the wire.
             if (!req._consuming && !req._readableState.resumeScheduled)
                 req._dump();
 
