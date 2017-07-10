@@ -1,6 +1,6 @@
-const FreeList         = require('./freelist').FreeList
+const FreeList         = require('../freelist').FreeList
 const HTTPParser       = process.binding('http_parser').HTTPParser
-const incoming         = require('_http_incoming')
+const incoming         = require('./incoming')
 const IncomingMessage  = incoming.IncomingMessage
 const readStart        = incoming.readStart
 const readStop         = incoming.readStop
@@ -27,7 +27,6 @@ function parserOnHeaders(headers, url) {
 }
 
 function parserOnHeadersComplete(info) {
-    debug('parserOnHeadersComplete', info)
     var parser = this
     var headers = info.headers
     var url = info.url

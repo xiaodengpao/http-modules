@@ -2,17 +2,15 @@ const net = require("net")
 const HTTPParser = process.binding('http_parser').HTTPParser // 通过binding方法调起C++模块
 const EventEmitter = require('events')
 const util = require('util')
-const OutgoingMessage = require('_http_outgoing').OutgoingMessage
+const OutgoingMessage = require('./outgoing').OutgoingMessage
 
 
-const common = require('_http_common')
+const common = require('./common')
 const parsers = common.parsers
 const freeParser = common.freeParser
-const debug = common.debug
 const CRLF = common.CRLF
 const continueExpression = common.continueExpression
 const chunkExpression = common.chunkExpression
-const httpSocketSetup = common.httpSocketSetup
 
 function onServerResponseClose() {
     console.log(this._httpMessage)

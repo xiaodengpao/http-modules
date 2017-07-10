@@ -1,4 +1,4 @@
-const Server = require('./libs/http_server')
+const Server = require('./libs/http').Server
 function sleep(milliSeconds) { 
     var startTime = new Date().getTime(); 
     while (new Date().getTime() < startTime + milliSeconds);
@@ -6,8 +6,6 @@ function sleep(milliSeconds) {
  
 const server = new Server( function(req, res) {
     res.writeHead(200)
-    res.write('Sth')
-    res.write('123123')
-    res.end()
+    res.end('gogo')
 })
 server.listen(9999)
