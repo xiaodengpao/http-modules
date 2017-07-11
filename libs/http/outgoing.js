@@ -471,7 +471,7 @@ class OutgoingMessage extends Stream {
             }
         }
     }
-
+    // 奔流
     flush () {
         if (!this._header) {
             this._implicitHeader();

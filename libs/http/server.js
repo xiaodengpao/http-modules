@@ -13,7 +13,6 @@ const continueExpression = common.continueExpression
 const chunkExpression = common.chunkExpression
 
 function onServerResponseClose() {
-    console.log(this._httpMessage)
     if (this._httpMessage) {
         this._httpMessage.emit('close')
     }
@@ -30,9 +29,11 @@ class ServerResponse extends OutgoingMessage {
             this.shouldKeepAlive = false
         }
     }
+    // 分配socket
     assignSocket (socket) {
+        // 一个socket一个res
         socket._httpMessage = this
-        socket.on('close', () => { console.log('close') })
+        socket.on('close', onServerResponseClose)
         this.socket = socket
         this.connection = socket
         this.emit('socket', socket)
@@ -90,15 +91,16 @@ class ServerResponse extends OutgoingMessage {
 // Server类
 class Server extends net.Server {
     constructor(requestListener) {
+        // 初始化net
         super({ allowHalfOpen: true })
+
+        // 监听request事件，触发callback
         this.addListener('request', requestListener)
 
-        this.httpAllowHalfOpen = false;
         this.addListener('connection', connectionListener)
-        this.addListener('clientError', function (err, conn) {
-            conn.destroy(err)
-        })
-        this.timeout = 3 * 1000;
+        
+        // 10S中断
+        this.timeout = 10 * 1000
     }
 }
 
@@ -110,45 +112,54 @@ function connectionListener(socket) {
     // 接受队列
     const incoming = []
 
+    // socket关闭时触发的回调
     function serverSocketCloseListener() {
         console.log('socket close!')
     }
 
-    // 超时处理 3s
+    // 超时处理
     if (self.timeout) {
+        // socket 设置超时时间，超时后触发timeout事件
         socket.setTimeout(self.timeout)
     }
     
     socket.on('timeout', function () {
         socket.destroy()
     })
+    // 从parsers队列中返回一个parser
     const parser = parsers.alloc()
-    parser.reinitialize(HTTPParser.REQUEST)
-    parser.reinitialize(HTTPParser.REQUEST)
+    
     // 互相引用一发
     parser.socket = socket
     socket.parser = parser
+    
     // 即将接收的消息
     parser.incoming = null
 
-    parser.maxHeaderPairs = 2000;
+    parser.maxHeaderPairs = 2000
 
-    socket.addListener('error', socketOnError);
-    socket.addListener('close', serverSocketCloseListener);
-    parser.onIncoming = parserOnIncoming;
-    socket.on('end', socketOnEnd);
-    socket.on('data', socketOnData);
+    socket.addListener('error', socketOnError)
+    socket.addListener('close', serverSocketCloseListener)
+    
+    // incoming事件监听
+    parser.onIncoming = parserOnIncoming
+    
+    socket.on('end', socketOnEnd)
+    socket.on('data', socketOnData)
 
-    // TODO(isaacs): Move all these functions out of here
     function socketOnError(e) {
-        self.emit('clientError', e, this);
+        self.emit('clientError', e, this)
     }
 
+    // 请求数据的入口
     function socketOnData(d) {
-        var ret = parser.execute(d)
+        // incoming，执行onIncoming
+        // ret: 头字节位置,excute函数解析出incoming，也就是
+        const ret = parser.execute(d)
+        
         if (parser.incoming && parser.incoming.upgrade) {
-            var bytesParsed = ret;
-            var req = parser.incoming;
+            const bytesParsed = ret
+            const req = parser.incoming
 
             socket.removeListener('data', socketOnData);
             socket.removeListener('end', socketOnEnd);
@@ -172,7 +183,6 @@ function connectionListener(socket) {
         }
 
         if (socket._paused) {
-            // onIncoming paused the socket, we should pause the parser as well
             socket.parser.pause();
         }
     }
@@ -220,9 +230,10 @@ function connectionListener(socket) {
             }
         }
 
-        var res = new ServerResponse(req);
-
-        res.shouldKeepAlive = shouldKeepAlive;
+        var res = new ServerResponse(req)
+        
+        // 是否长连接，由客户端决定
+        res.shouldKeepAlive = shouldKeepAlive
 
         if (socket._httpMessage) {
             // There are already pending outgoing res, append.

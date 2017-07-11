@@ -1,35 +1,34 @@
 const FreeList         = require('../freelist').FreeList
-const HTTPParser       = process.binding('http_parser').HTTPParser
 const incoming         = require('./incoming')
 const IncomingMessage  = incoming.IncomingMessage
 const readStart        = incoming.readStart
 const readStop         = incoming.readStop
 const isNumber         = require('util').isNumber
+const binding          = process.binding('http_parser')
+const methods          = binding.methods
+const HTTPParser       = binding.HTTPParser
 
 exports.CRLF = '\r\n'
 exports.chunkExpression = /chunk/i
 exports.continueExpression = /100-continue/i
-exports.methods = HTTPParser.methods
 
 const kOnHeaders = HTTPParser.kOnHeaders | 0
 const kOnHeadersComplete = HTTPParser.kOnHeadersComplete | 0
 const kOnBody = HTTPParser.kOnBody | 0
 const kOnMessageComplete = HTTPParser.kOnMessageComplete | 0
+const kOnExecute = HTTPParser.kOnExecute | 0
 
-
+// 没有被调用，可能只有当header超长的时候才会调用
 function parserOnHeaders(headers, url) {
-    // Once we exceeded headers limit - stop collecting them
     if (this.maxHeaderPairs <= 0 ||
         this._headers.length < this.maxHeaderPairs) {
         this._headers = this._headers.concat(headers)
     }
     this._url += url
 }
-
-function parserOnHeadersComplete(info) {
+// 解析headers
+function parserOnHeadersComplete (versionMajor, versionMinor, headers, method, url, statusCode, statusMessage, upgrade, shouldKeepAlive) {
     var parser = this
-    var headers = info.headers
-    var url = info.url
 
     if (!headers) {
         headers = parser._headers
@@ -40,43 +39,48 @@ function parserOnHeadersComplete(info) {
         url = parser._url
         parser._url = ''
     }
-
+    // req原型
     parser.incoming = new IncomingMessage(parser.socket)
-    parser.incoming.httpVersionMajor = info.versionMajor
-    parser.incoming.httpVersionMinor = info.versionMinor
-    parser.incoming.httpVersion = info.versionMajor + '.' + info.versionMinor
+    // 几个重要变量的赋值
+    parser.incoming.httpVersionMajor = versionMajor
+    parser.incoming.httpVersionMinor = versionMinor
+    parser.incoming.httpVersion = versionMajor + '.' + versionMinor
     parser.incoming.url = url
 
+    // headers 是一个数组，有最大长度，然后整合成json
     var n = headers.length
 
-    // If parser.maxHeaderPairs <= 0 - assume that there're no limit
+    // 判断是否需要截取headers
+    // 如果 parser.maxHeaderPairs <= 0 ，说明没有限制
     if (parser.maxHeaderPairs > 0) {
         n = Math.min(n, parser.maxHeaderPairs)
     }
-
+    // 截取固定长度headers，解析出headers
     parser.incoming._addHeaderLines(headers, n)
+    parser.incoming.method = methods[method]
 
-    if (isNumber(info.method)) {
-        // server only
-        parser.incoming.method = HTTPParser.methods[info.method]
-    } else {
-        // client only
-        parser.incoming.statusCode = info.statusCode
-        parser.incoming.statusMessage = info.statusMessage
+    // 类似于提升协议？ 没搞懂，websocket?
+    if (upgrade && parser.outgoing !== null && !parser.outgoing.upgrading) {
+        upgrade = false
     }
 
-    parser.incoming.upgrade = info.upgrade
+    parser.incoming.upgrade = upgrade
+    
+    // response to HEAD or CONNECT
+    let skipBody = 0 
 
-    var skipBody = false // response to HEAD or CONNECT
-
-    if (!info.upgrade) {
-        // For upgraded connections and CONNECT method request,
-        // we'll emit this after parser.execute
-        // so that we can capture the first part of the new protocol
-        skipBody = parser.onIncoming(parser.incoming, info.shouldKeepAlive)
+    if (!upgrade) {
+        // For upgraded connections and CONNECT method request, we'll emit this
+        // after parser.execute so that we can capture the first part of the new
+        // protocol.
+        // 回调回server.js   onIncoming方法
+        skipBody = parser.onIncoming(parser.incoming, shouldKeepAlive)
     }
 
-    return skipBody;
+    if (typeof skipBody !== 'number')
+        return skipBody ? 1 : 0
+    else
+        return skipBody
 }
 
 
@@ -100,8 +104,8 @@ function parserOnBody(b, start, len) {
 }
 
 function parserOnMessageComplete() {
-    var parser = this
-    var stream = parser.incoming
+     var parser = this
+     var stream = parser.incoming
 
     if (stream) {
         stream.complete = true
@@ -130,7 +134,6 @@ function parserOnMessageComplete() {
 
 var parsers = new FreeList('parsers', 1000, function () {
     var parser = new HTTPParser(HTTPParser.REQUEST)
-
     parser._headers = []
     parser._url = ''
 
@@ -139,13 +142,11 @@ var parsers = new FreeList('parsers', 1000, function () {
     parser[kOnHeadersComplete] = parserOnHeadersComplete
     parser[kOnBody] = parserOnBody
     parser[kOnMessageComplete] = parserOnMessageComplete
-
+    parser[kOnExecute] = null
     return parser
 })
 
 exports.parsers = parsers
-
-
 
 function freeParser(parser, req, socket) {
     if (parser) {
@@ -178,4 +179,6 @@ function httpSocketSetup(socket) {
     socket.removeListener('drain', ondrain)
     socket.on('drain', ondrain)
 }
-exports.httpSocketSetup = httpSocketSetup;
+exports.httpSocketSetup = httpSocketSetup
+
+exports.methods = methods
