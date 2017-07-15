@@ -136,13 +136,13 @@ var parsers = new FreeList('parsers', 1000, function () {
     var parser = new HTTPParser(HTTPParser.REQUEST)
     parser._headers = []
     parser._url = ''
-
-   
+    // parser事件监听，依次执行
     parser[kOnHeaders] = parserOnHeaders
     parser[kOnHeadersComplete] = parserOnHeadersComplete
     parser[kOnBody] = parserOnBody
     parser[kOnMessageComplete] = parserOnMessageComplete
     parser[kOnExecute] = null
+    
     return parser
 })
 

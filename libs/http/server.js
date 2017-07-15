@@ -107,9 +107,8 @@ class Server extends net.Server {
 // 监听socket的connection
 function connectionListener(socket) {
     const self = this
-    // 返回队列
+    // 这两个队列的目的是为了检测当前socket数量，当数量太多的情况下，执行pause
     const outgoing = []
-    // 接受队列
     const incoming = []
 
     // socket关闭时触发的回调
@@ -143,53 +142,54 @@ function connectionListener(socket) {
     
     // incoming事件监听
     parser.onIncoming = parserOnIncoming
-    
+    // 结束
     socket.on('end', socketOnEnd)
+    // 数据处理
     socket.on('data', socketOnData)
 
     function socketOnError(e) {
         self.emit('clientError', e, this)
     }
 
-    // 请求数据的入口
+    // 请求数据的入口 d：二进制数据
     function socketOnData(d) {
-        // incoming，执行onIncoming
-        // ret: 头字节位置,excute函数解析出incoming，也就是
+        // execute,内部方法，会依次触发 parserOnHeaders 等N个方法，解析出完整headers
+        // ret: 头字节位置,excute函数解析出incoming，也就是res
         const ret = parser.execute(d)
-        
+        // upgeade协议升级，websocket?
         if (parser.incoming && parser.incoming.upgrade) {
             const bytesParsed = ret
             const req = parser.incoming
-
-            socket.removeListener('data', socketOnData);
-            socket.removeListener('end', socketOnEnd);
-            socket.removeListener('close', serverSocketCloseListener);
-            parser.finish();
-            freeParser(parser, req, null);
-            parser = null;
+            
+            socket.removeListener('data', socketOnData)
+            socket.removeListener('end', socketOnEnd)
+            socket.removeListener('close', serverSocketCloseListener)
+            parser.finish()
+            freeParser(parser, req, null)
+            parser = null
 
             var eventName = req.method === 'CONNECT' ? 'connect' : 'upgrade';
             if (EventEmitter.listenerCount(self, eventName) > 0) {
-                var bodyHead = d.slice(bytesParsed, d.length);
+                var bodyHead = d.slice(bytesParsed, d.length)
 
                 // TODO(isaacs): Need a way to reset a stream to fresh state
                 // IE, not flowing, and not explicitly paused.
-                socket._readableState.flowing = null;
-                self.emit(eventName, req, socket, bodyHead);
+                socket._readableState.flowing = null
+                self.emit(eventName, req, socket, bodyHead)
             } else {
                 // Got upgrade header or CONNECT method, but have no handler.
-                socket.destroy();
+                socket.destroy()
             }
         }
-
+        // 暂停
         if (socket._paused) {
             socket.parser.pause();
         }
     }
 
     function socketOnEnd() {
-        var socket = this;
-        var ret = parser.finish();
+        var socket = this
+        var ret = parser.finish()
 
         if (ret instanceof Error) {
             socket.destroy(ret);
@@ -199,34 +199,25 @@ function connectionListener(socket) {
     }
 
 
-    // The following callback is issued after the headers have been read on a
-    // new message. In this callback we setup the response object and pass it
-    // to the user.
-
-    socket._paused = false;
+    socket._paused = false
     function socketOnDrain() {
-        // If we previously paused, then start reading again.
         if (socket._paused) {
             socket._paused = false;
             socket.parser.resume();
             socket.resume();
         }
     }
-    socket.on('drain', socketOnDrain);
-
+    socket.on('drain', socketOnDrain)
+    
+    // 当headers解析完成后，进入这个回调中
     function parserOnIncoming(req, shouldKeepAlive) {
         incoming.push(req)
-        // If the writable end isn't consuming, then stop reading
-        // so that we don't become overwhelmed by a flood of
-        // pipelined requests that may never be resolved.
+        
         if (!socket._paused) {
             var needPause = socket._writableState.needDrain;
             if (needPause) {
-                socket._paused = true;
-                // We also need to pause the parser, but don't do that until after
-                // the call to execute, because we may still be processing the last
-                // chunk.
-                socket.pause();
+                socket._paused = true
+                socket.pause()
             }
         }
 
@@ -234,31 +225,29 @@ function connectionListener(socket) {
         
         // 是否长连接，由客户端决定
         res.shouldKeepAlive = shouldKeepAlive
-
+        
+        // socket._httpMessage是对Res实例的引用
         if (socket._httpMessage) {
-            // There are already pending outgoing res, append.
-            outgoing.push(res);
+            outgoing.push(res)
         } else {
             res.assignSocket(socket)
         }
 
-        // When we're finished writing the response, check if this is the last
-        // respose, if so destroy the socket.
         res.on('prefinish', resOnFinish);
         function resOnFinish() {
-            incoming.shift();
+            incoming.shift()
             if (!req._consuming && !req._readableState.resumeScheduled)
-                req._dump();
+                req._dump()
 
-            res.detachSocket(socket);
+            res.detachSocket(socket)
 
             if (res._last) {
-                socket.destroySoon();
+                socket.destroySoon()
             } else {
                 // start sending the next message
-                var m = outgoing.shift();
+                var m = outgoing.shift()
                 if (m) {
-                    m.assignSocket(socket);
+                    m.assignSocket(socket)
                 }
             }
         }
@@ -273,6 +262,7 @@ function connectionListener(socket) {
                 res.writeContinue();
                 self.emit('request', req, res);
             }
+        // 一般情况下，进到这里
         } else {
             self.emit('request', req, res);
         }

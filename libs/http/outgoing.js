@@ -35,7 +35,7 @@ utcDate._onTimeout = function () {
     dateCache = undefined
 }
 
-
+// Res基类
 class OutgoingMessage extends Stream {
     constructor (opts) {
         super(opts)
