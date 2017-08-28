@@ -5,7 +5,6 @@ function sleep(milliSeconds) {
  }
  
 const server = new Server( function(req, res) {
-    console.log('request!!!!!!')
     res.writeHead(200)
     res.end('gogo')
 })
